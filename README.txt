@@ -1,3 +1,11 @@
+BACKGROUND
+
+Made during my co-op term with the government of Ontario, all sensitive information was excluded. Purpose of this is taking in excel workbooks with quarterly client billing reports & automatically mass producing PowerBi reports for clients to view.
+
+
+
+
+
 CLIENT REPORT GENERATOR
 
 Creates one Power BI report file per client from the quarterly billing workbooks.
