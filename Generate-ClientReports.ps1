@@ -1,44 +1,52 @@
 <#
 .SYNOPSIS
-    Creates one ready-to-load Power BI template (.pbit) per client from a folder of quarterly billing workbooks.
+
+    last updated - Nov 6th, 2026 
+    reach out to aadit.patel@ontario.ca for any questions.
+
+    creates one ready-to-load Power BI template (.pbit) per client from a folder of quarterly billing workbooks 
+    NOTE: You have to manually load the .pbit files in Power BI and save them as .pbix to get the final report.
 
 .DESCRIPTION
-    1. Reads every Users_Report_*.xlsx in the input folder.
-    2. Works out the reporting group, fiscal year and quarter from each file name
+    1. reads every Users_Report_*.xlsx (excel workbook) in the input folder.
+
+    2. works out the reporting group, fiscal year and quarter from each file name
        (same rules as the template, e.g. Users_Report_LTC_2026-2027_Q3.xlsx -> LTC, 2026-2027, Q3;
-       no group in the name -> "Overall").
-    3. For each reporting group and fiscal year, picks the report quarter (the latest one found,
+       no group in the name -> "Overall"). Format is (FISCALYEAR-QUARTER-CLIENT)
+
+    3. for each reporting group and fiscal year, picks the report quarter (the latest one found,
        or the one given with -Quarter) and the workbooks it needs:
            Q1 report -> Q1         Q2 report -> Q1, Q2
-           Q3 report -> Q1, Q2, Q3 Q4 report -> Q1, Q2, Q3 (Q3 is used as Q4, no Q4 workbook needed)
-    4. Writes a copy of the template into the output folder with Report Quarter and the
+           Q3 report -> Q1, Q2, Q3 Q4 report -> Q1, Q2, Q3 (Q3 is used as Q4, no Q4 workbook needed in the formula)
+
+    4. writes a copy of the template into the output folder with Report Quarter and the
        Q1/Q2/Q3 Excel Workbook values built in, e.g. 2026-2027-LTC-Q3.pbit. The parameters are
        turned into fixed values, so the file opens without asking for anything.
 
-    Each client's file only points at that client's own workbooks, so the finished report
-    contains only that client's data.
+    each client's file only points at that client's own workbooks, so the finished report
+    contains only that client's data, to prevent any issues with data leakage.
 
-    After running: open each .pbit (Power BI loads the data by itself), then File > Save as .pbix.
+    after running: open each .pbit (Power BI loads the data by itself), then File > Save as .pbix.
 
 .PARAMETER InputFolder
-    Folder containing the client workbooks (Users_Report_*.xlsx).
+    folder containing the client workbooks (Users_Report_*.xlsx).
 
 .PARAMETER TemplatePath
-    The Automated Client User Billing Report Template (.pbit).
+    the Automated Client User Billing Report Template (.pbit).
 
 .PARAMETER OutputFolder
-    Folder for the generated .pbit files and the generation log. Created if it does not exist.
+    folder for the generated .pbit files and the generation log. Created if it does not exist.
 
 .PARAMETER Quarter
-    Optional. Q1, Q2, Q3 or Q4. Generate this quarter for every client instead of each client's latest.
+    optional. Q1, Q2, Q3 or Q4. Generate this quarter for every client instead of each client's latest.
 
 .PARAMETER FiscalYear
-    Optional. e.g. 2026-2027. Only generate reports for this fiscal year.
+    optional. e.g. 2026-2027. Only generate reports for this fiscal year.
 
 .PARAMETER NameFormat
-    Optional. How output files are named, using {FiscalYear}, {Client} and {Quarter}.
-    Default: {FiscalYear}-{Client}-{Quarter}  ->  2026-2027-JTS-Q2.pbit
-    Example: -NameFormat '{FiscalYear}-{Quarter}-{Client}'  ->  2026-2027-Q2-JTS.pbit
+    optional. How output files are named, using {FiscalYear}, {Client} and {Quarter}.
+    default: {FiscalYear}-{Client}-{Quarter}  ->  2026-2027-JTS-Q2.pbit
+    example: -NameFormat '{FiscalYear}-{Quarter}-{Client}'  ->  2026-2027-Q2-ESD.pbit
 
 .EXAMPLE
     .\Generate-ClientReports.ps1 -InputFolder "C:\Billing\2026-2027 Q3" -TemplatePath "C:\Billing\Automated_Client_User_Billing_Report_Template.pbit" -OutputFolder "C:\Billing\Reports Q3"
@@ -53,17 +61,16 @@ param(
     [Parameter(Mandatory = $true)] [string] $OutputFolder,
     [ValidateSet('Q1', 'Q2', 'Q3', 'Q4')] [string] $Quarter,
     [string] $FiscalYear,
-    # Output file name pattern. Change the order here to rename every generated file.
-    [string] $NameFormat = '{FiscalYear}-{Client}-{Quarter}'
-)
+    # output file name pattern. can easily adjust if naming convention changes in the future
+    [string] $NameFormat = '{FiscalYear}-{Quarter}-{Client}')
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-# ---------------------------------------------------------------------------------------------
-# File name parsing (mirrors fnParseReportFileName in the template)
-# ---------------------------------------------------------------------------------------------
+
+# file name parsing (literally just fnParseReportFileName in the template but for this)
+
 function Test-FiscalYear([string] $Text) {
     if ($Text -notmatch '^\d{4}-\d{4}$') { return $false }
     return ([int]$Text.Substring(5, 4) -eq [int]$Text.Substring(0, 4) + 1)
@@ -98,11 +105,10 @@ function Get-ReportInfo([System.IO.FileInfo] $File) {
     }
 }
 
-# ---------------------------------------------------------------------------------------------
-# Template editing: set parameter values in the query definitions (UTF-16 JSON).
+# template editing: set parameter values in the query definitions (UTF-16 JSON).
 # A .pbit can hold the queries twice: in DataModelSchema (the model) and in UnappliedChanges
 # (Power Query's copy, which Power BI uses when present). Both are updated the same way.
-# ---------------------------------------------------------------------------------------------
+
 function ConvertTo-JsonEscapedMText([string] $Value) {
     # M text literal ("" escapes a quote), then JSON-escape it for the schema file
     $m = '"' + $Value.Replace('"', '""') + '"'
@@ -133,7 +139,7 @@ function Update-Queries([string] $Text, [hashtable] $Values) {
     foreach ($name in @('Q1 Excel Workbook', 'Q2 Excel Workbook', 'Q3 Excel Workbook')) {
         $Text = Set-NamedParameter $Text $name $Values[$name]
     }
-    # Turn every parameter into a fixed value. A template that still has parameters always opens
+    # rurn every parameter into a fixed value. a template that still has parameters always opens
     # the "enter parameters" window; without them Power BI opens the file and loads the data directly.
     $paramPattern = ' meta \[IsParameterQuery=true[^\]]*\](?=")'
     $paramCount = [regex]::Matches($Text, $paramPattern).Count
@@ -173,7 +179,7 @@ function New-ClientTemplate([string] $Template, [string] $Destination, [hashtabl
         $target = [System.IO.Compression.ZipFile]::Open($Destination, [System.IO.Compression.ZipArchiveMode]::Create)
         try {
             foreach ($entry in $source.Entries) {
-                # SecurityBindings signs the original contents; Power BI rejects the file if it no longer matches
+                # securityBindings signs the original contents; Power BI rejects the file if it no longer matches to prevent incorrect information being displayed
                 if ($entry.FullName -eq 'SecurityBindings') { continue }
                 $bytes = Read-EntryBytes $entry
                 if ($entry.FullName -eq 'DataModelSchema') { $bytes = $schemaBytes }
@@ -194,9 +200,8 @@ function New-ClientTemplate([string] $Template, [string] $Destination, [hashtabl
     finally { $source.Dispose() }
 }
 
-# ---------------------------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------------------------
+# main
+
 $InputFolder = (Resolve-Path -LiteralPath $InputFolder).Path
 $TemplatePath = (Resolve-Path -LiteralPath $TemplatePath).Path
 if (-not (Test-Path -LiteralPath $OutputFolder)) { New-Item -ItemType Directory -Path $OutputFolder | Out-Null }
